@@ -1,60 +1,160 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
-import '../../core/constants/mock_data.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
+import '../../models/post_model.dart';
+import '../../models/user_model.dart';
+import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/feed_widgets.dart';
+
+class _QuickAction {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.tabIndex,
+  });
+
+  final IconData icon;
+  final String label;
+  final int tabIndex;
+}
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, required this.firestoreService});
+
+  final FirestoreService firestoreService;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _ProfileScreenState extends State<ProfileScreen> {
+  int _selectedTab = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+  static const _quickActions = [
+    _QuickAction(icon: Icons.article_outlined, label: 'Bài viết', tabIndex: 0),
+    _QuickAction(
+        icon: Icons.rate_review_outlined, label: 'Đánh giá', tabIndex: 1),
+    _QuickAction(
+        icon: Icons.location_on_rounded, label: 'Check-in', tabIndex: 2),
+  ];
+
+  Future<void> _signOut() async {
+    await AuthService().signOut();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  void _goToTab(int index) {
+    setState(() => _selectedTab = index);
+  }
+
+  List<PostModel> _filterPosts(List<PostModel> posts) {
+    return switch (_selectedTab) {
+      1 => posts.where((p) => p.type == PostType.review).toList(),
+      2 => posts.where((p) => p.type == PostType.checkin).toList(),
+      _ => posts,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = MockData.currentUser;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      return const Center(child: Text('Vui lòng đăng nhập'));
+    }
 
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Column(
-            children: [
-              _buildProfileHeader(user),
-              _buildStats(),
-              _buildPremiumCard(),
-              _buildQuickActions(),
-              _buildTabBar(),
-            ],
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.all(12),
-          sliver: _buildGallery(),
-        ),
-        const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
-      ],
+    return StreamBuilder<List<PostModel>>(
+      stream: widget.firestoreService.watchUserPosts(userId),
+      builder: (context, postsSnapshot) {
+        final allPosts = postsSnapshot.data ?? [];
+        final filteredPosts = _filterPosts(allPosts);
+        final postsLoading =
+            postsSnapshot.connectionState == ConnectionState.waiting &&
+                !postsSnapshot.hasData;
+
+        return StreamBuilder<UserModel?>(
+          stream: widget.firestoreService.watchUser(userId),
+          builder: (context, userSnapshot) {
+            final user = userSnapshot.data;
+            final userLoading =
+                userSnapshot.connectionState == ConnectionState.waiting &&
+                    user == null;
+
+            if (userLoading && postsLoading) {
+              return const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              );
+            }
+
+            return CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      _buildProfileHeader(user),
+                      _buildStats(allPosts),
+                      _buildPremiumCard(),
+                      _buildQuickActions(),
+                    ],
+                  ),
+                ),
+                if (postsLoading)
+                  const SliverFillRemaining(
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  )
+                else if (filteredPosts.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: EmptyState(
+                      icon: switch (_selectedTab) {
+                        1 => Icons.rate_review_outlined,
+                        2 => Icons.location_on_outlined,
+                        _ => Icons.post_add_outlined,
+                      },
+                      title: switch (_selectedTab) {
+                        1 => 'Chưa có đánh giá nào',
+                        2 => 'Chưa có check-in nào',
+                        _ => 'Chưa có bài viết nào',
+                      },
+                      subtitle: switch (_selectedTab) {
+                        1 =>
+                          'Nhấn nút + để viết đánh giá địa điểm bạn yêu thích',
+                        2 =>
+                          'Check-in tại địa điểm để ghi lại hành trình của bạn',
+                        _ =>
+                          'Nhấn nút + ở giữa để đăng bài viết đầu tiên',
+                      },
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => ReviewCard(
+                          post: filteredPosts[index],
+                          firestoreService: widget.firestoreService,
+                        ),
+                        childCount: filteredPosts.length,
+                      ),
+                    ),
+                  ),
+                const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
-  Widget _buildProfileHeader(MockUser user) {
+  Widget _buildProfileHeader(UserModel? user) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Column(
@@ -63,12 +163,9 @@ class _ProfileScreenState extends State<ProfileScreen>
             children: [
               const Spacer(),
               IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.settings_outlined),
-              ),
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.share_outlined),
+                onPressed: _signOut,
+                icon: const Icon(Icons.logout_rounded),
+                tooltip: 'Đăng xuất',
               ),
             ],
           ),
@@ -86,7 +183,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
               child: ClipOval(
                 child: CachedImage(
-                  imageUrl: user.avatarUrl,
+                  imageUrl: user?.avatarUrl ?? AppConstants.defaultAvatar,
                   width: 96,
                   height: 96,
                 ),
@@ -97,43 +194,44 @@ class _ProfileScreenState extends State<ProfileScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                user.name,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
+              Flexible(
+                child: Text(
+                  user?.name ?? 'Người dùng',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (user.isVerified) ...[
+              if (user?.isVerified == true) ...[
                 const SizedBox(width: 6),
                 const Icon(Icons.verified_rounded,
                     size: 20, color: AppColors.primary),
               ],
               const SizedBox(width: 8),
-              LevelBadge(level: user.level),
+              LevelBadge(level: user?.level ?? 1),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            user.username,
+            user?.username ?? '@user',
             style: const TextStyle(
               fontSize: 14,
               color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: 12),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              '🍜 Foodie & Travel enthusiast | Khám phá ẩm thực Sài Gòn | Coffee lover ☕',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.4,
-                color: AppColors.textPrimary,
+          if (user?.bio.isNotEmpty == true) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                user!.bio,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, height: 1.4),
               ),
             ),
-          ),
+          ],
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -141,29 +239,12 @@ class _ProfileScreenState extends State<ProfileScreen>
               Icon(Icons.location_on_outlined,
                   size: 16, color: AppColors.primary.withValues(alpha: 0.8)),
               const SizedBox(width: 4),
-              const Text(
-                'Quận 1, Hồ Chí Minh',
-                style: TextStyle(
+              Text(
+                user?.location ?? 'Hồ Chí Minh',
+                style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _ProfileButton(
-                label: 'Chỉnh sửa',
-                isPrimary: false,
-                onTap: () {},
-              ),
-              const SizedBox(width: 12),
-              _ProfileButton(
-                label: 'Chia sẻ hồ sơ',
-                isPrimary: true,
-                onTap: () {},
               ),
             ],
           ),
@@ -172,7 +253,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildStats() {
+  Widget _buildStats(List<PostModel> posts) {
+    final reviewCount = posts.where((p) => p.type == PostType.review).length;
+    final checkInCount = posts.where((p) => p.type == PostType.checkin).length;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -180,16 +264,26 @@ class _ProfileScreenState extends State<ProfileScreen>
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _StatItem(value: '128', label: 'Bài viết'),
-          _StatDivider(),
-          _StatItem(value: '2.4K', label: 'Người theo dõi'),
-          _StatDivider(),
-          _StatItem(value: '356', label: 'Đang theo dõi'),
-          _StatDivider(),
-          _StatItem(value: '89', label: 'Check-in'),
+          _StatItem(
+            value: '${posts.length}',
+            label: 'Bài viết',
+            onTap: () => _goToTab(0),
+          ),
+          const _StatDivider(),
+          _StatItem(
+            value: '$reviewCount',
+            label: 'Đánh giá',
+            onTap: () => _goToTab(1),
+          ),
+          const _StatDivider(),
+          _StatItem(
+            value: '$checkInCount',
+            label: 'Check-in',
+            onTap: () => _goToTab(2),
+          ),
         ],
       ),
     );
@@ -210,54 +304,23 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ],
       ),
-      child: Row(
+      child: const Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.diamond_rounded,
-                color: Colors.white, size: 28),
-          ),
-          const SizedBox(width: 16),
-          const Expanded(
+          Icon(Icons.diamond_rounded, color: Colors.white, size: 28),
+          SizedBox(width: 16),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'CheckinGo Premium',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+                Text('CheckinGo Premium',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800)),
                 SizedBox(height: 4),
-                Text(
-                  'Trải nghiệm không giới hạn, ưu đãi độc quyền',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
+                Text('Trải nghiệm không giới hạn, ưu đãi độc quyền',
+                    style: TextStyle(color: Colors.white70, fontSize: 12)),
               ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'Nâng cấp',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
             ),
           ),
         ],
@@ -266,36 +329,44 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildQuickActions() {
-    final actions = [
-      (Icons.bookmark_rounded, 'Đã lưu', AppColors.primary),
-      (Icons.location_on_rounded, 'Check-in', const Color(0xFF10B981)),
-      (Icons.rate_review_rounded, 'Đánh giá', const Color(0xFF6366F1)),
-      (Icons.local_offer_rounded, 'Ưu đãi', const Color(0xFFEC4899)),
-    ];
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: Row(
-        children: actions.map((action) {
+        children: _quickActions.map((action) {
+          final isActive = _selectedTab == action.tabIndex;
           return Expanded(
             child: GestureDetector(
-              onTap: () {},
+              onTap: () => _goToTab(action.tabIndex),
               child: Column(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: (action.$3).withValues(alpha: 0.1),
+                      color: isActive
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : AppColors.surface,
                       borderRadius: BorderRadius.circular(16),
+                      border: isActive
+                          ? Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.3))
+                          : null,
                     ),
-                    child: Icon(action.$1, color: action.$3, size: 24),
+                    child: Icon(
+                      action.icon,
+                      color: isActive
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    action.$2,
-                    style: const TextStyle(
+                    action.label,
+                    style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                      color:
+                          isActive ? AppColors.primary : AppColors.textPrimary,
                     ),
                   ),
                 ],
@@ -306,96 +377,38 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
     );
   }
-
-  Widget _buildTabBar() {
-    return Container(
-      margin: const EdgeInsets.only(top: 20),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border, width: 1),
-        ),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        isScrollable: true,
-        tabAlignment: TabAlignment.start,
-        labelColor: AppColors.primary,
-        unselectedLabelColor: AppColors.textSecondary,
-        indicatorColor: AppColors.primary,
-        indicatorWeight: 3,
-        labelStyle: const TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 14,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: 14,
-        ),
-        tabs: MockData.profileTabs.map((tab) => Tab(text: tab)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildGallery() {
-    final heights = [160.0, 200.0, 140.0, 180.0, 150.0, 190.0];
-
-    return SliverMasonryGrid.count(
-      crossAxisCount: 2,
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      childCount: MockData.galleryImages.length,
-      itemBuilder: (context, index) {
-        final height = heights[index % heights.length];
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration: Duration(milliseconds: 300 + index * 50),
-          curve: Curves.easeOut,
-          builder: (context, value, child) {
-            return Opacity(
-              opacity: value,
-              child: Transform.scale(scale: 0.9 + 0.1 * value, child: child),
-            );
-          },
-          child: GestureDetector(
-            onTap: () {},
-            child: CachedImage(
-              imageUrl: MockData.galleryImages[index],
-              height: height,
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class _StatItem extends StatelessWidget {
-  const _StatItem({required this.value, required this.label});
+  const _StatItem({
+    required this.value,
+    required this.label,
+    this.onTap,
+  });
 
   final String value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-          ),
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -405,45 +418,6 @@ class _StatDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 32,
-      color: AppColors.border,
-    );
-  }
-}
-
-class _ProfileButton extends StatelessWidget {
-  const _ProfileButton({
-    required this.label,
-    required this.isPrimary,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isPrimary;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-        decoration: BoxDecoration(
-          color: isPrimary ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(24),
-          border: isPrimary ? null : Border.all(color: AppColors.border),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: isPrimary ? Colors.white : AppColors.textPrimary,
-          ),
-        ),
-      ),
-    );
+    return Container(width: 1, height: 32, color: AppColors.border);
   }
 }

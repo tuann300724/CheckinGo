@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants/mock_data.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../services/firestore_service.dart';
 import '../../widgets/feed_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.firestoreService});
+
+  final FirestoreService firestoreService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -35,39 +38,65 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
-      opacity: CurvedAnimation(
-        parent: _animController,
-        curve: Curves.easeOut,
-      ),
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(child: _buildHeader()),
-          SliverToBoxAdapter(child: _buildSearchBar()),
-          SliverToBoxAdapter(child: _buildStories()),
-          SliverToBoxAdapter(child: _buildFeedTabs()),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  return TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: 1),
-                    duration: Duration(milliseconds: 400 + index * 100),
-                    curve: Curves.easeOut,
-                    builder: (context, value, child) {
-                      return Transform.translate(
-                        offset: Offset(0, 20 * (1 - value)),
-                        child: Opacity(opacity: value, child: child),
-                      );
-                    },
-                    child: ReviewCard(review: MockData.reviews[index]),
-                  );
-                },
-                childCount: MockData.reviews.length,
-              ),
-            ),
-          ),
-        ],
+      opacity: CurvedAnimation(parent: _animController, curve: Curves.easeOut),
+      child: StreamBuilder(
+        stream: widget.firestoreService.watchPosts(),
+        builder: (context, snapshot) {
+          final posts = snapshot.data ?? [];
+          final isLoading =
+              snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData;
+
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader()),
+              SliverToBoxAdapter(child: _buildSearchBar()),
+              SliverToBoxAdapter(child: _buildStories()),
+              SliverToBoxAdapter(child: _buildFeedTabs()),
+              if (isLoading)
+                const SliverFillRemaining(
+                  child: Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                )
+              else if (posts.isEmpty)
+                const SliverFillRemaining(
+                  child: EmptyState(
+                    icon: Icons.post_add_outlined,
+                    title: 'Chưa có bài viết nào',
+                    subtitle:
+                        'Hãy là người đầu tiên chia sẻ trải nghiệm ẩm thực & du lịch!',
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        return TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: Duration(milliseconds: 400 + index * 100),
+                          curve: Curves.easeOut,
+                          builder: (context, value, child) {
+                            return Transform.translate(
+                              offset: Offset(0, 20 * (1 - value)),
+                              child: Opacity(opacity: value, child: child),
+                            );
+                          },
+                          child: ReviewCard(
+                            post: posts[index],
+                            firestoreService: widget.firestoreService,
+                          ),
+                        );
+                      },
+                      childCount: posts.length,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -90,13 +119,8 @@ class _HomeScreenState extends State<HomeScreen>
                 Icon(Icons.location_on_rounded,
                     size: 18, color: AppColors.primary),
                 SizedBox(width: 4),
-                Text(
-                  'Hồ Chí Minh',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
+                Text('Hồ Chí Minh',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 SizedBox(width: 2),
                 Icon(Icons.keyboard_arrow_down_rounded,
                     size: 20, color: AppColors.textSecondary),
@@ -104,17 +128,9 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const Spacer(),
-          _HeaderIconButton(
-            icon: Icons.notifications_outlined,
-            badge: '3',
-            onTap: () {},
-          ),
+          _HeaderIconButton(icon: Icons.notifications_outlined, onTap: () {}),
           const SizedBox(width: 8),
-          _HeaderIconButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            badge: '5',
-            onTap: () {},
-          ),
+          _HeaderIconButton(icon: Icons.chat_bubble_outline_rounded, onTap: () {}),
         ],
       ),
     );
@@ -164,27 +180,40 @@ class _HomeScreenState extends State<HomeScreen>
           padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
           child: Text(
             '🔥 Địa điểm nổi bật hôm nay',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
         ),
-        SizedBox(
-          height: 100,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: MockData.trendingPlaces.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              return StoryCircle(
-                place: MockData.trendingPlaces[index],
-                borderColor: AppColors.storyBorders[
-                    index % AppColors.storyBorders.length],
+        StreamBuilder(
+          stream: widget.firestoreService.watchTrendingPlaces(),
+          builder: (context, snapshot) {
+            final places = snapshot.data ?? [];
+            if (places.isEmpty) {
+              return const SizedBox(
+                height: 100,
+                child: Center(
+                  child: Text('Chưa có địa điểm nào',
+                      style: TextStyle(color: AppColors.textHint)),
+                ),
               );
-            },
-          ),
+            }
+            return SizedBox(
+              height: 100,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: places.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 14),
+                itemBuilder: (context, index) {
+                  return StoryCircle(
+                    place: places[index],
+                    borderColor: AppColors.storyBorders[
+                        index % AppColors.storyBorders.length],
+                    firestoreService: widget.firestoreService,
+                  );
+                },
+              ),
+            );
+          },
         ),
       ],
     );
@@ -197,8 +226,8 @@ class _HomeScreenState extends State<HomeScreen>
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: MockData.feedTabs.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemCount: AppConstants.feedTabs.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final isSelected = _selectedTab == index;
           return GestureDetector(
@@ -220,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen>
                     : null,
               ),
               child: Text(
-                MockData.feedTabs[index],
+                AppConstants.feedTabs[index],
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -236,55 +265,23 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.icon,
-    required this.badge,
-    required this.onTap,
-  });
+  const _HeaderIconButton({required this.icon, required this.onTap});
 
   final IconData icon;
-  final String badge;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Icon(icon, size: 22, color: AppColors.textPrimary),
-          ),
-          if (badge.isNotEmpty)
-            Positioned(
-              top: -4,
-              right: -4,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: AppColors.error,
-                  shape: BoxShape.circle,
-                ),
-                constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                child: Text(
-                  badge,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-        ],
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Icon(icon, size: 22, color: AppColors.textPrimary),
       ),
     );
   }

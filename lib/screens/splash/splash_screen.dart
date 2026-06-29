@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../widgets/common_widgets.dart';
-import '../main/main_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -59,15 +58,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (status == AnimationStatus.completed) {
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) {
-            Navigator.of(context).pushReplacement(
-              PageRouteBuilder(
-                pageBuilder: (_, __, ___) => const MainScreen(),
-                transitionsBuilder: (_, animation, __, child) {
-                  return FadeTransition(opacity: animation, child: child);
-                },
-                transitionDuration: const Duration(milliseconds: 600),
-              ),
-            );
+            Navigator.of(context).pushReplacementNamed('/home');
           }
         });
       }

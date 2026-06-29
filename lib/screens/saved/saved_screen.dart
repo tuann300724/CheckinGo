@@ -1,154 +1,144 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/constants/mock_data.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../models/place_model.dart';
+import '../../services/firestore_service.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/feed_widgets.dart';
+import '../home/place_detail_screen.dart';
 
 class SavedScreen extends StatelessWidget {
-  const SavedScreen({super.key});
+  const SavedScreen({super.key, required this.firestoreService});
+
+  final FirestoreService firestoreService;
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Đã lưu',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${MockData.trendingPlaces.length} địa điểm đã lưu',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [AppTheme.softShadow],
-                  ),
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Tìm trong danh sách đã lưu...',
-                      hintStyle: TextStyle(
-                        color: AppColors.textHint.withValues(alpha: 0.8),
-                        fontSize: 14,
-                      ),
-                      prefixIcon: const Icon(Icons.search_rounded,
-                          color: AppColors.textHint),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (userId == null) {
+      return const Center(child: Text('Vui lòng đăng nhập'));
+    }
+
+    return StreamBuilder<List<PlaceModel>>(
+      stream: firestoreService.watchSavedPlaces(userId),
+      builder: (context, snapshot) {
+        final places = snapshot.data ?? [];
+        final isLoading =
+            snapshot.connectionState == ConnectionState.waiting;
+
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Đã lưu',
+                      style: TextStyle(
+                          fontSize: 28, fontWeight: FontWeight.w800),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 38,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _FilterChip(label: 'Tất cả', isSelected: true),
-                      _FilterChip(label: 'Ăn uống', isSelected: false),
-                      _FilterChip(label: 'Cà phê', isSelected: false),
-                      _FilterChip(label: 'Du lịch', isSelected: false),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                return TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 300 + index * 80),
-                  curve: Curves.easeOut,
-                  builder: (context, value, child) {
-                    return Opacity(
-                      opacity: value,
-                      child: Transform.translate(
-                        offset: Offset(0, 16 * (1 - value)),
-                        child: child,
+                    const SizedBox(height: 4),
+                    Text(
+                      isLoading
+                          ? 'Đang tải...'
+                          : '${places.length} địa điểm đã lưu',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
                       ),
-                    );
-                  },
-                  child: _SavedPlaceCard(
-                    place: MockData.trendingPlaces[index],
-                  ),
-                );
-              },
-              childCount: MockData.trendingPlaces.length,
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [AppTheme.softShadow],
+                      ),
+                      child: const TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Tìm trong danh sách đã lưu...',
+                          prefixIcon: Icon(Icons.search_rounded,
+                              color: AppColors.textHint),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.isSelected});
-
-  final String label;
-  final bool isSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary : AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isSelected ? AppColors.primary : AppColors.border,
-        ),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: isSelected ? Colors.white : AppColors.textSecondary,
-        ),
-      ),
+            if (isLoading)
+              const SliverFillRemaining(
+                child: Center(
+                  child:
+                      CircularProgressIndicator(color: AppColors.primary),
+                ),
+              )
+            else if (places.isEmpty)
+              const SliverFillRemaining(
+                child: EmptyState(
+                  icon: Icons.bookmark_border_rounded,
+                  title: 'Chưa lưu địa điểm nào',
+                  subtitle:
+                      'Nhấn nút Lưu trên bài viết hoặc địa điểm để lưu lại',
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) =>
+                        _SavedPlaceCard(
+                          place: places[index],
+                          firestoreService: firestoreService,
+                        ),
+                    childCount: places.length,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _SavedPlaceCard extends StatelessWidget {
-  const _SavedPlaceCard({required this.place});
+  const _SavedPlaceCard({required this.place, required this.firestoreService});
 
-  final MockPlace place;
+  final PlaceModel place;
+  final FirestoreService firestoreService;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [AppTheme.softShadow],
-      ),
-      child: Column(
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlaceDetailScreen(
+              place: place,
+              firestoreService: firestoreService,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [AppTheme.softShadow],
+        ),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Stack(
@@ -171,33 +161,31 @@ class _SavedPlaceCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [AppTheme.softShadow],
                   ),
-                  child: const Icon(
-                    Icons.bookmark_rounded,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.bookmark_rounded,
+                      color: AppColors.primary, size: 20),
                 ),
               ),
-              Positioned(
-                bottom: 12,
-                left: 12,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    place.category,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+              if (place.category.isNotEmpty)
+                Positioned(
+                  bottom: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      place.category,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
           Padding(
@@ -208,15 +196,15 @@ class _SavedPlaceCard extends StatelessWidget {
                 Text(
                   place.name,
                   style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
+                      fontSize: 17, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    RatingBadge(rating: place.rating),
-                    const SizedBox(width: 8),
+                    if (place.rating > 0) ...[
+                      RatingBadge(rating: place.rating),
+                      const SizedBox(width: 8),
+                    ],
                     Text(
                       '${place.reviewCount} đánh giá',
                       style: const TextStyle(
@@ -229,25 +217,16 @@ class _SavedPlaceCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(Icons.near_me_outlined,
-                        size: 14, color: AppColors.primary),
-                    const SizedBox(width: 4),
-                    Text(
-                      place.distance,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     const Icon(Icons.place_outlined,
                         size: 14, color: AppColors.textHint),
                     const SizedBox(width: 4),
-                    Text(
-                      place.district,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
+                    Expanded(
+                      child: Text(
+                        place.district,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
@@ -257,6 +236,6 @@ class _SavedPlaceCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ),);
   }
 }

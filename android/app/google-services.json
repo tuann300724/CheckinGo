@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "392562660036",
+    "project_id": "checkingo-bb56d",
+    "storage_bucket": "checkingo-bb56d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:392562660036:android:7f8010f53b014906216f91",
+        "android_client_info": {
+          "package_name": "com.example.checkingo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgSRbrhxNM_3aJF3CRMsAMAvrxhZevKa0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
